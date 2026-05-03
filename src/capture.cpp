@@ -75,11 +75,14 @@ bool Capture::start(const ServiceConfig& config, const std::string& output_path)
         time_t now = ::time(nullptr);
         if (now != last_log_time) {
             if (total_received != last_log_received) {
-                syslog(LOG_INFO, "recv=%llu written=%llu dup=%llu gaps=%llu dropped=%llu",
+                uint64_t total_seen = total_received + total_dup;
+                uint64_t expected_total = highest_seq > 0 ? highest_seq - sequence_tracker.base() + 1 : 0;
+                uint64_t missing = expected_total > total_seen ? expected_total - total_seen : 0;
+                syslog(LOG_INFO, "recv=%llu written=%llu dup=%llu missing=%llu dropped=%llu",
                        (unsigned long long)total_received,
                        (unsigned long long)total_written,
                        (unsigned long long)total_dup,
-                       (unsigned long long)total_gaps,
+                       (unsigned long long)missing,
                        (unsigned long long)total_dropped);
                 last_log_received = total_received;
             }
@@ -109,27 +112,22 @@ bool Capture::start(const ServiceConfig& config, const std::string& output_path)
             // Sequence check
             uint64_t seq = read_seq(recv_buffer);
 
-            if (first_packet) {
-                expected_seq = seq;
-                first_packet = false;
-            }
-
-            // Duplicate
-            if (seq < expected_seq) {
+            // Check if any messages in this 
+            // packet was already seen
+            if (sequence_tracker.is_seen(seq)) {
                 total_dup++;
                 continue;
             }
 
-            // Gap
-            if (seq > expected_seq) {
-                syslog(LOG_WARNING, "gap: expected=%llu got=%llu missing=%llu",
-                       (unsigned long long)expected_seq,
-                       (unsigned long long)seq,
-                       (unsigned long long)(seq - expected_seq));
-                total_gaps++;
+            // Mark all sequences in this packet as seen
+            sequence_tracker.mark_range_seen(seq, msg_count);
+
+            // Track highest sequence for gap detection
+            uint64_t last_in_packet = seq + msg_count - 1;
+            if (last_in_packet > highest_seq) {
+                highest_seq = last_in_packet;
             }
 
-            expected_seq = seq + msg_count;
             total_received++;
 
             // Write: [4-byte length][raw packet]
