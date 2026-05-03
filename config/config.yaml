@@ -1,0 +1,18 @@
+services:
+  realtime:
+    next_sequence_number: 0
+    queue_size: 8388608
+    channels:
+      - multicast_address: ""
+        multicast_port: 12002
+        interface: ""
+        source: ""
+      - multicast_address: ""
+        multicast_port: 12003
+        interface: ""
+        source: ""
+    recovery:
+      channels:
+        - rerequester_address: ""
+          rerequester_port: 12004
+          max_recovery_message_count: 50000
